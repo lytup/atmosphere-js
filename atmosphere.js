@@ -288,14 +288,12 @@
 				_response.state = 'unsubscribe';
 				_response.responseBody = "";
 				_response.status = 408;
-                _response.partialMessage = "";
 				_invokeCallback();
 				_disconnect();
 				_clearState();
 			}
 			
 			function _clearState() {
-                _response.partialMessage = "";
                 if (_request.id) {
                     clearTimeout(_request.id);
                 }
@@ -1066,13 +1064,9 @@
 					} else if (_request.reconnect && (_response.transport === 'sse')) {
 						if (_requestCount++ < _request.maxReconnectOnClose) {
 							_open('re-connecting', _request.transport, _request);
-                            if (_request.reconnectInterval > 0) {
-                                _request.id = setTimeout(function() {
-                                    _executeSSE(true);
-                                }, _request.reconnectInterval);
-                            } else {
-                                _executeSSE(true);
-                            }
+							_request.id = setTimeout(function() {
+								_executeSSE(true);
+							}, _request.reconnectInterval);
 							_response.responseBody = "";
 							_response.messages = [];
 						} else {
@@ -1238,17 +1232,11 @@
 						_clearState();
 						if (_requestCount++ < _request.maxReconnectOnClose) {
 							_open('re-connecting', _request.transport, _request);
-                            if (_request.reconnectInterval > 0) {
-                                _request.id = setTimeout(function () {
-                                    _response.responseBody = "";
-                                    _response.messages = [];
-                                    _executeWebSocket(true);
-                                }, _request.reconnectInterval);
-                            } else {
-                                _response.responseBody = "";
-                                _response.messages = [];
-                                _executeWebSocket(true);
-                            }
+							_request.id = setTimeout(function() {
+								_response.responseBody = "";
+								_response.messages = [];
+								_executeWebSocket(true);
+							}, _request.reconnectInterval);
 						} else {
 							atmosphere.util.log(_request.logLevel, ["Websocket reconnect maximum try reached " + _request.requestCount]);
 							atmosphere.util.warn("Websocket error, reason: " + message.reason);
@@ -1269,7 +1257,7 @@
 			function _handleProtocol(request, message) {
 				// The first messages is always the uuid.
 				var b = true;
-				if (atmosphere.util.trim(message).length !== 0 && request.enableProtocol && request.firstMessage) {
+				if (atmosphere.util.trim(message) !== 0 && request.enableProtocol && request.firstMessage) {
 					request.firstMessage = false;
 					var messages = message.split(request.messageDelimiter);
 					var pos = messages.length === 2 ? 0 : 1;
@@ -1322,8 +1310,8 @@
 				
 				if (request.trackMessageLength) {
 					// prepend partialMessage if any
-                    message = response.partialMessage + message.replace(/(\r\n|\n|\r)/gm,"").replace(/^\s+|\s+$/g,"");
-
+					message = response.partialMessage;
+					
 					var messages = [];
 					var messageStart = message.indexOf(request.messageDelimiter);
 					while (messageStart !== -1) {
@@ -1383,13 +1371,9 @@
 					_request.method = _request.fallbackMethod;
 					_response.transport = _request.fallbackTransport;
 					_request.fallbackTransport = 'none';
-                    if (reconnectInterval > 0) {
-                        _request.id = setTimeout(function () {
-                            _execute();
-                        }, reconnectInterval);
-                    } else {
-                        _execute();
-                    }
+					_request.id = setTimeout(function() {
+						_execute();
+					}, reconnectInterval);
 				} else {
 					_onError(500, "Unable to reconnect with fallback transport");
 				}
@@ -1558,7 +1542,9 @@
 						var skipCallbackInvocation = false;
 						var update = false;
 						
-						if (rq.transport === 'streaming' && rq.readyState > 2 && ajaxRequest.readyState === 4) {
+						// Opera doesn't call onerror if the server disconnect.
+						if (atmosphere.util.browser.opera && rq.transport === 'streaming' && rq.readyState > 2 && ajaxRequest.readyState === 4) {
+							
 							_clearState();
 							reconnectF();
 							return;
@@ -1572,28 +1558,26 @@
 							update = true;
 						}
 						_timeout(_request);
-
-                        if(rq.transport !== 'polling') {
-                            if ((!rq.enableProtocol || !request.firstMessage) && ajaxRequest.readyState === 2) {
-                                _triggerOpen(rq);
-                            }
-
-                            // MSIE 9 and lower status can be higher than 1000, Chrome can be 0
-                            var status = 0;
-                            if (ajaxRequest.readyState !== 0) {
-                                status = ajaxRequest.status > 1000 ? 0 : ajaxRequest.status;
-                            }
-
-                            if (status >= 300 || status === 0) {
-                                // Prevent onerror callback to be called
-                                _response.errorHandled = true;
-                                _clearState();
-                                reconnectF();
-                                return;
-                            }
-                        }
-
+						
+						if ((!rq.enableProtocol || !request.firstMessage) && rq.transport !== 'polling' && ajaxRequest.readyState === 2) {
+							_triggerOpen(rq);
+						}
+						
 						if (update) {
+							
+							// MSIE 9 and lower status can be higher than 1000, Chrome can be 0
+							var status = 0;
+							if (ajaxRequest.readyState !== 0) {
+								status = ajaxRequest.status > 1000 ? 0 : ajaxRequest.status;
+							}
+							
+							if (status >= 300 || status === 0) {
+								// Prevent onerror callback to be called
+								_response.errorHandled = true;
+								_clearState();
+								reconnectF();
+								return;
+							}
 							var responseText = ajaxRequest.responseText;
 							
 							if (atmosphere.util.trim(responseText).length === 0 && rq.transport === 'long-polling') {
@@ -1717,7 +1701,7 @@
 				
 				if (create) {
 					ajaxRequest.open(request.method, url, request.async);
-					if (request.connectTimeout > 0) {
+					if (request.connectTimeout > -1) {
 						request.id = setTimeout(function() {
 							if (request.requestCount === 0) {
 								_clearState();
@@ -1770,13 +1754,9 @@
 					_response.reason = status === 0 ? "Server resumed the connection or down." : "OK";
 					
 					clearTimeout(request.id);
-                    if (reconnectInterval > 0) {
-                        request.id = setTimeout(function() {
-                            _executeRequest(request);
-                        }, reconnectInterval);
-                    } else {
-                        _executeRequest(request);
-                    }
+					request.id = setTimeout(function() {
+						_executeRequest(request);
+					}, reconnectInterval);
 				}
 			}
 			
@@ -1835,15 +1815,10 @@
 					if (rq.transport !== 'polling') {
 						_clearState();
 						if (_requestCount++ < rq.maxReconnectOnClose) {
-                            if (rq.reconnectInterval > 0) {
-                                rq.id = setTimeout(function() {
-                                    _open('re-connecting', request.transport, request);
-                                    _ieXDR(rq);
-                                }, rq.reconnectInterval);
-                            } else {
-                                _open('re-connecting', request.transport, request);
-                                _ieXDR(rq);
-                            }
+							rq.id = setTimeout(function() {
+								_open('re-connecting', request.transport, request);
+								_ieXDR(rq);
+							}, rq.reconnectInterval);
 						} else {
 							_onError(0, "maxReconnectOnClose reached");
 						}
@@ -1896,7 +1871,7 @@
 							xdr.send(rq.data);
 						}
 						
-						if (rq.connectTimeout > 0) {
+						if (rq.connectTimeout > -1) {
 							rq.id = setTimeout(function() {
 								if (rq.requestCount === 0) {
 									_clearState();
@@ -2021,13 +1996,9 @@
 									if (cdoc.readyState === "complete") {
 										_invokeClose(true);
 										_open('re-connecting', rq.transport, rq);
-                                        if (rq.reconnectInterval > 0) {
-                                            rq.id = setTimeout(function() {
-                                                _ieStreaming(rq);
-                                            }, rq.reconnectInterval);
-                                        } else {
-                                            _ieStreaming(rq);
-                                        }
+										rq.id = setTimeout(function() {
+											_ieStreaming(rq);
+										}, rq.reconnectInterval);
 										return false;
 									}
 								}, null);
@@ -2037,13 +2008,9 @@
 								_response.error = true;
 								_open('re-connecting', rq.transport, rq);
 								if (_requestCount++ < rq.maxReconnectOnClose) {
-                                    if (rq.reconnectInterval > 0) {
-                                        rq.id = setTimeout(function() {
-                                            _ieStreaming(rq);
-                                        }, rq.reconnectInterval);
-                                    } else {
-                                        _ieStreaming(rq);
-                                    }
+									rq.id = setTimeout(function() {
+										_ieStreaming(rq);
+									}, rq.reconnectInterval);
 								} else {
 									_onError(0, "maxReconnectOnClose reached");
 								}
