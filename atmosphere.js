@@ -288,14 +288,12 @@
 				_response.state = 'unsubscribe';
 				_response.responseBody = "";
 				_response.status = 408;
-                _response.partialMessage = "";
 				_invokeCallback();
 				_disconnect();
 				_clearState();
 			}
 			
 			function _clearState() {
-                _response.partialMessage = "";
                 if (_request.id) {
                     clearTimeout(_request.id);
                 }
@@ -1259,7 +1257,7 @@
 			function _handleProtocol(request, message) {
 				// The first messages is always the uuid.
 				var b = true;
-				if (atmosphere.util.trim(message).length !== 0 && request.enableProtocol && request.firstMessage) {
+				if (atmosphere.util.trim(message) !== 0 && request.enableProtocol && request.firstMessage) {
 					request.firstMessage = false;
 					var messages = message.split(request.messageDelimiter);
 					var pos = messages.length === 2 ? 0 : 1;
@@ -1312,8 +1310,8 @@
 				
 				if (request.trackMessageLength) {
 					// prepend partialMessage if any
-                    message = response.partialMessage + message.replace(/(\r\n|\n|\r)/gm,"").replace(/^\s+|\s+$/g,"");
-
+                    message = response.partialMessage + message;
+					
 					var messages = [];
 					var messageStart = message.indexOf(request.messageDelimiter);
 					while (messageStart !== -1) {
@@ -1544,7 +1542,9 @@
 						var skipCallbackInvocation = false;
 						var update = false;
 						
-						if (rq.transport === 'streaming' && rq.readyState > 2 && ajaxRequest.readyState === 4) {
+						// Opera doesn't call onerror if the server disconnect.
+						if (atmosphere.util.browser.opera && rq.transport === 'streaming' && rq.readyState > 2 && ajaxRequest.readyState === 4) {
+							
 							_clearState();
 							reconnectF();
 							return;
@@ -1562,22 +1562,22 @@
 						if ((!rq.enableProtocol || !request.firstMessage) && rq.transport !== 'polling' && ajaxRequest.readyState === 2) {
 							_triggerOpen(rq);
 						}
-
-                        // MSIE 9 and lower status can be higher than 1000, Chrome can be 0
-                        var status = 0;
-                        if (ajaxRequest.readyState !== 0) {
-                            status = ajaxRequest.status > 1000 ? 0 : ajaxRequest.status;
-                        }
-
-                        if (status >= 300 || status === 0) {
-                            // Prevent onerror callback to be called
-                            _response.errorHandled = true;
-                            _clearState();
-                            reconnectF();
-                            return;
-                        }
-
+						
 						if (update) {
+							
+							// MSIE 9 and lower status can be higher than 1000, Chrome can be 0
+							var status = 0;
+							if (ajaxRequest.readyState !== 0) {
+								status = ajaxRequest.status > 1000 ? 0 : ajaxRequest.status;
+							}
+							
+							if (status >= 300 || status === 0) {
+								// Prevent onerror callback to be called
+								_response.errorHandled = true;
+								_clearState();
+								reconnectF();
+								return;
+							}
 							var responseText = ajaxRequest.responseText;
 							
 							if (atmosphere.util.trim(responseText).length === 0 && rq.transport === 'long-polling') {
@@ -1701,7 +1701,7 @@
 				
 				if (create) {
 					ajaxRequest.open(request.method, url, request.async);
-					if (request.connectTimeout > 0) {
+					if (request.connectTimeout > -1) {
 						request.id = setTimeout(function() {
 							if (request.requestCount === 0) {
 								_clearState();
@@ -1871,7 +1871,7 @@
 							xdr.send(rq.data);
 						}
 						
-						if (rq.connectTimeout > 0) {
+						if (rq.connectTimeout > -1) {
 							rq.id = setTimeout(function() {
 								if (rq.requestCount === 0) {
 									_clearState();
