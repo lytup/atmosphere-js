@@ -28,7 +28,7 @@
 
     "use strict";
 
-    var version = "2.0.6-javascript",
+    var version = "2.0.7-javascript",
         atmosphere = {},
         guid,
         requests = [],
@@ -920,7 +920,21 @@
                             };
                             script.onerror = function () {
                                 script.clean();
-                                _onError(0, "maxReconnectOnClose reached");
+                                rq.lastIndex = 0;
+
+                                if (rq.openId) {
+                                    clearTimeout(rq.openId);
+                                }
+
+                                if (rq.reconnect && _requestCount++ < rq.maxReconnectOnClose) {
+                                    _open('re-connecting', rq.transport, rq);
+                                    _reconnect(_jqxhr, rq, request.reconnectInterval);
+                                    rq.openId = setTimeout(function() {
+                                        _triggerOpen(rq);
+                                    }, rq.reconnectInterval + 1000);
+                                } else {
+                                    _onError(0, "maxReconnectOnClose reached");
+                                }
                             };
 
                             head.insertBefore(script, head.firstChild);
@@ -1022,7 +1036,7 @@
 
                 _response.transport = "sse";
 
-                var location = _buildSSEUrl(_request.url);
+                var location = _buildSSEUrl();
 
                 if (_request.logLevel === 'debug') {
                     atmosphere.util.debug("Invoking executeSSE");
@@ -1096,10 +1110,10 @@
 
                     // https://github.com/remy/polyfills/blob/master/EventSource.js
                     // Since we polling.
-                    if (_sse.URL) {
+                   /* if (_sse.URL) {
                         _sse.interval = 100;
-                        _sse.URL = _buildSSEUrl(_request.url);
-                    }
+                        _sse.URL = _buildSSEUrl();
+                    } */
 
                     if (!skipCallbackInvocation) {
                         _invokeCallback();
@@ -1200,18 +1214,22 @@
                         atmosphere.util.debug("Websocket successfully opened");
                     }
 
+                    var reopening = webSocketOpened;
+
+                    webSocketOpened = true;
+                    if(_websocket != null) {
+                        _websocket.webSocketOpened = webSocketOpened;
+                    }
+
                     if (!_request.enableProtocol) {
-                        if (!webSocketOpened) {
-                            _open('opening', "websocket", _request);
-                        } else {
+                        if (reopening) {
                             _open('re-opening', "websocket", _request);
+                        } else {
+                            _open('opening', "websocket", _request);
                         }
                     }
 
-                    webSocketOpened = true;
                     if (_websocket != null) {
-                        _websocket.webSocketOpened = webSocketOpened;
-
                         if (_request.method === 'POST') {
                             _response.state = "messageReceived";
                             _websocket.send(_request.data);
@@ -1659,13 +1677,9 @@
                         _timeout(_request);
 
                         if (rq.transport !== 'polling') {
-                            if ((!rq.enableProtocol || !request.firstMessage) && ajaxRequest.readyState === 2) {
-                                _triggerOpen(rq);
-                            }
-
                             // MSIE 9 and lower status can be higher than 1000, Chrome can be 0
                             var status = 200;
-                            if (ajaxRequest.readyState > 1) {
+                            if (ajaxRequest.readyState === 4) {
                                 status = ajaxRequest.status > 1000 ? 0 : ajaxRequest.status;
                             }
 
@@ -1676,6 +1690,12 @@
                                 reconnectF();
                                 return;
                             }
+
+                            // Firefox incorrectly send statechange 0->2 when a reconnect attempt fails. The above checks ensure that onopen is not called for these
+                            if ((!rq.enableProtocol || !request.firstMessage) && ajaxRequest.readyState === 2) {
+                                _triggerOpen(rq);
+                            }
+
                         } else if (ajaxRequest.readyState === 4) {
                             update = true;
                         }
@@ -2411,6 +2431,7 @@
                             f.onError(response);
                         break;
                     case "opening":
+                        delete _request.closed;
                         if (typeof (f.onOpen) !== 'undefined')
                             f.onOpen(response);
                         break;
@@ -2427,6 +2448,7 @@
                            f.onClientTimeout(_request);
                         break;
                     case "re-opening":
+                        delete _request.closed;
                         if (typeof (f.onReopen) !== 'undefined')
                             f.onReopen(_request, response);
                         break;
@@ -2662,8 +2684,8 @@
         },
 
         isBinary: function (data) {
-            var string = Object.prototype.toString.call(data);
-            return string === "[object Blob]" || string === "[object ArrayBuffer]";
+            // True if data is an instance of Blob, ArrayBuffer or ArrayBufferView 
+            return /^\[object\s(?:Blob|ArrayBuffer|.+Array)\]$/.test(Object.prototype.toString.call(data));
         },
 
         isFunction: function (fn) {
