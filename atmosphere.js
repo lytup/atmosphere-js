@@ -28,11 +28,12 @@
 
     "use strict";
 
-    var version = "2.0.4-javascript",
+    var version = "2.0.5-javascript",
         atmosphere = {},
         guid,
         requests = [],
         callbacks = [],
+        uuid = 0,
         hasOwn = Object.prototype.hasOwnProperty;
 
     atmosphere = {
@@ -148,7 +149,7 @@
                 request: null,
                 partialMessage: "",
                 errorHandled: false,
-                id: 0
+                closedByClientTimeout: false
             };
 
             /**
@@ -303,11 +304,18 @@
 
                     var url = _request.url.replace(/([?&])_=[^&]*/, query);
                     url = url + (url === _request.url ? (/\?/.test(_request.url) ? "&" : "?") + query : "");
-                    _request.attachHeadersAsQueryString = false;
-                    _request.dropAtmosphereHeaders = true;
-                    _request.url = url;
-                    _request.transport = 'polling';
-                    _pushOnClose("", _request);
+
+
+                    var rq = {
+                        connected: false,
+                    };
+                    var closeR = new atmosphere.AtmosphereRequest(rq);
+                    closeR.attachHeadersAsQueryString = false;
+                    closeR.dropAtmosphereHeaders = true;
+                    closeR.url = url;
+                    closeR.contentType = "text/plain";
+                    closeR.transport = 'polling';
+                    _pushOnClose("", closeR);
                 }
             }
 
@@ -366,7 +374,7 @@
                     // Clears trace timer
                     clearInterval(_traceTimer);
                     // Removes the trace
-                    document.cookie = _sharingKey + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+                    document.cookie = _sharingKey + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
                     // The heir is the parent unless unloading
                     _storageService.signal("close", {
                         reason: "",
@@ -446,9 +454,11 @@
                 }
 
                 // Protocol
-                _request.firstMessage = true;
+                _request.firstMessage = uuid == 0 ? true : false;
                 _request.isOpen = false;
                 _request.ctime = atmosphere.util.now();
+                _request.uuid = uuid;
+                _response.closedByClientTimeout = false;
 
                 if (_request.transport !== 'websocket' && _request.transport !== 'sse') {
                     _executeRequest(_request);
@@ -795,7 +805,7 @@
                         encodeURIComponent(atmosphere.util.stringifyJSON({
                             ts: atmosphere.util.now() + 1,
                             heir: (storageService.get("children") || [])[0]
-                        }));
+                        })) + "; path=/";
                 }
 
                 // Chooses a storageService
@@ -1098,7 +1108,7 @@
                 _sse.onerror = function (message) {
                     clearTimeout(_request.id);
 
-                    if (_response.state === 'closedByClient') return;
+                    if (_response.closedByClientTimeout) return;
 
                     _invokeClose(sseOpened);
                     _clearState();
@@ -1274,7 +1284,7 @@
                         atmosphere.util.warn("Websocket closed, wasClean: " + message.wasClean);
                     }
 
-                    if (_response.state === 'closedByClient') {
+                    if (_response.closedByClientTimeout) {
                         return;
                     }
 
@@ -1334,6 +1344,7 @@
                     if (request.transport !== 'long-polling') {
                         _triggerOpen(request);
                     }
+                    uuid = request.uuid;
                 } else if (request.enableProtocol && request.firstMessage) {
                     // In case we are getting some junk from IE
                     b = false;
@@ -1355,6 +1366,7 @@
             }
 
             function _onClientTimeout(_request) {
+                _response.closedByClientTimeout = true;
                 _response.state = 'closedByClient';
                 _response.responseBody = "";
                 _response.status = 408;
@@ -2290,7 +2302,7 @@
              *
              */
             function _pushWebSocket(message) {
-                var msg = _getStringMessage(message);
+                var msg = atmosphere.util.isBinary(message) ? message : _getStringMessage(message);
                 var data;
                 try {
                     if (_request.dispatchUrl != null) {
@@ -2732,6 +2744,7 @@
         },
 
         each: function (obj, callback, args) {
+            if (!obj) return;
             var value, i = 0, length = obj.length, isArray = atmosphere.util.isArray(obj);
 
             if (args) {
@@ -2924,12 +2937,12 @@
                 return true;
             }
 
-            // KreaTV 4.1 -> 4.6
+            // KreaTV 4.1 -> 4.4
             else if (atmosphere.util.trim(navigator.userAgent).slice(0, 16) === "KreaTVWebKit/531") {
                 return true;
             }
             // KreaTV 3.8
-            else if (atmosphere.util.trim(navigator.userAgent).slice(-7).toLowerCase() === "Kreatel") {
+            else if (atmosphere.util.trim(navigator.userAgent).slice(-7).toLowerCase() === "kreatel") {
                 return true;
             }
 
