@@ -35,7 +35,7 @@
 
     "use strict";
 
-    var version = "2.1.5-javascript",
+    var version = "2.1.6-javascript",
         atmosphere = {},
         guid,
         requests = [],
@@ -1399,7 +1399,7 @@
                         _triggerOpen(request);
                     }
                     uuid = request.uuid;
-                } else if (request.enableProtocol && request.firstMessage) {
+                } else if (request.enableProtocol && request.firstMessage && atmosphere.util.browser.msie && +atmosphere.util.browser.version.split(".")[0] < 10) {
                     // In case we are getting some junk from IE
                     b = false;
                 } else {
@@ -2619,14 +2619,14 @@
             atmosphere.addCallback(callback);
         }
 
-        // https://github.com/Atmosphere/atmosphere-javascript/issues/58
-        uuid = 0;
-
         if (typeof (url) !== "string") {
             request = url;
         } else {
             request.url = url;
         }
+
+        // https://github.com/Atmosphere/atmosphere-javascript/issues/58
+        uuid = ((typeof (request) !== 'undefined') && typeof (request.uuid) !== 'undefined') ? request.uuid : 0;
 
         var rq = new atmosphere.AtmosphereRequest(request);
         rq.execute();
